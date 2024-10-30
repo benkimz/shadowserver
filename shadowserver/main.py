@@ -3,6 +3,7 @@ import aiohttp
 from aiohttp import web, ClientSession, ClientTimeout, ClientError, WSMsgType
 from multidict import MultiDict
 from urllib.parse import urlsplit
+import ssl
 
 class ShadowServer:
     def __init__(self, target_base_url, timeout=30, max_conn=100):
@@ -63,19 +64,27 @@ class ShadowServer:
         return response.headers.get('Transfer-Encoding', '').lower() == 'chunked'
 
     async def build_response(self, response):
-        # Read response body in chunks if transfer encoding is chunked
         body = await response.read()
-        headers = MultiDict((key, value) for key, value in response.headers.items() if key.lower() != 'transfer-encoding')
-        
-        # Set 'Content-Length' only if the body length is known
-        if 'Content-Length' not in headers and not self.is_response_chunked(response):
-            headers['Content-Length'] = headers['content-length'] = str(len(body))
+
+        # Filter headers to ensure no duplicate Content-Length or Content-Encoding headers
+        headers = MultiDict((key, value) for key, value in response.headers.items()
+                            if key.lower() not in ('transfer-encoding', 'content-encoding', 'content-length', 'access-control-allow-origin', 'access-control-allow-methods', 'access-control-allow-headers'))
+
+        # Set Content-Length if the response is not chunked
+        if not self.is_response_chunked(response):
+            headers['Content-Length'] = str(len(body))
+
+        # Add CORS headers to allow all origins and HTTP methods
+        headers['Access-Control-Allow-Origin'] = '*'
+        headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS, PUT, DELETE, PATCH'
+        headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization'
 
         return web.Response(
             status=response.status,
             headers=headers,
             body=body
         )
+
 
     def construct_target_url(self, request):
         path_info = request.match_info['path_info']
@@ -92,12 +101,18 @@ class ShadowServer:
     async def close(self):
         await self.session.close()
 
-    async def start_server(self, host='127.0.0.1', port=8080):
+    async def start_server(self, host='127.0.0.1', port=8080, cert_path=None, key_path=None):
         await self.init_session()
         runner = web.AppRunner(self.app)
         await runner.setup()
-        site = web.TCPSite(runner, host, port)
-        print(f'Starting server on {host}:{port}')
+
+        ssl_context = None
+        if cert_path and key_path:
+            ssl_context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
+            ssl_context.load_cert_chain(certfile=cert_path, keyfile=key_path)
+
+        site = web.TCPSite(runner, host, port, ssl_context=ssl_context)
+        print(f'Starting server on {host}:{port} ({"HTTPS" if ssl_context else "HTTP"})')
         await site.start()
         try:
             while True:
