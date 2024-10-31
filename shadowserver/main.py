@@ -4,6 +4,20 @@ from aiohttp import web, ClientSession, ClientTimeout, ClientError, WSMsgType
 from multidict import MultiDict
 from urllib.parse import urlsplit
 import ssl
+import threading
+import webbrowser
+import sys
+import os
+
+# ANSI escape codes for colored terminal output
+class Colors:
+    HEADER = '\033[95m'
+    OKBLUE = '\033[94m'
+    OKGREEN = '\033[92m'
+    WARNING = '\033[93m'
+    FAIL = '\033[91m'
+    ENDC = '\033[0m'
+    BOLD = '\033[1m'
 
 class ShadowServer:
     def __init__(self, target_base_url, timeout=30, max_conn=100):
@@ -13,18 +27,25 @@ class ShadowServer:
         self.session = None  # Initialized later in an async context
         self.app = web.Application()
         self.app.router.add_route('*', '/{path_info:.*}', self.handle_request)
+        self.restart_event = asyncio.Event()
+        self.server_url = ""
+        self.browser_opened = False
 
     async def init_session(self):
         """Initialize the session and connector with the running event loop."""
         self.session = ClientSession(
             timeout=ClientTimeout(total=self.timeout),
             connector=aiohttp.TCPConnector(limit=self.max_conn, ssl=False)
-        )
+        )  
 
     async def handle_request(self, request):
         target_url = self.construct_target_url(request)
         headers = self.prepare_headers(request)
         
+        # Handle CORS preflight requests
+        if request.method == 'OPTIONS':
+            return self.handle_cors_preflight()
+
         try:
             if 'upgrade' in request.headers.get('connection', '').lower():
                 return await self.handle_websocket(request, target_url, headers)
@@ -39,9 +60,20 @@ class ShadowServer:
                 return await self.build_response(response)
 
         except ClientError as e:
-            print(f"Proxy error to {target_url}: {e}")
+            print(f"\n{Colors.FAIL}[ERROR] Proxy error to {target_url}: {e}{Colors.ENDC}\n")
             return web.Response(status=502, text="Bad Gateway")
-    
+
+    def handle_cors_preflight(self):
+        """Return a response for CORS preflight requests."""
+        return web.Response(
+            status=200,
+            headers={
+                'Access-Control-Allow-Origin': '*',
+                'Access-Control-Allow-Methods': 'GET, POST, OPTIONS, PUT, DELETE, PATCH',
+                'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Requested-With'
+            }
+        )
+
     async def handle_websocket(self, request, target_url, headers):
         async with self.session.ws_connect(target_url, headers=headers) as ws_client:
             ws_server = web.WebSocketResponse()
@@ -77,14 +109,14 @@ class ShadowServer:
         # Add CORS headers to allow all origins and HTTP methods
         headers['Access-Control-Allow-Origin'] = '*'
         headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS, PUT, DELETE, PATCH'
-        headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization'
+        headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, X-Requested-With'
+        headers['Access-Control-Expose-Headers'] = 'Content-Length, Content-Type'
 
         return web.Response(
             status=response.status,
             headers=headers,
             body=body
         )
-
 
     def construct_target_url(self, request):
         path_info = request.match_info['path_info']
@@ -95,7 +127,12 @@ class ShadowServer:
 
     def prepare_headers(self, request):
         headers = {key: value for key, value in request.headers.items() if key.lower() != 'host'}
-        headers['Host'] = urlsplit(self.target_base_url).netloc
+        headers.update({
+            'Host': urlsplit(self.target_base_url).netloc,
+            'X-Real-IP': request.remote,
+            'X-Forwarded-For': request.headers.get('X-Forwarded-For', request.remote),
+            'X-Forwarded-Proto': request.scheme,
+        })
         return headers
 
     async def close(self):
@@ -111,12 +148,36 @@ class ShadowServer:
             ssl_context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
             ssl_context.load_cert_chain(certfile=cert_path, keyfile=key_path)
 
+        self.server_url = f"http{'s' if ssl_context else ''}://{host}:{port}"
         site = web.TCPSite(runner, host, port, ssl_context=ssl_context)
-        print(f'Starting server on {host}:{port} ({"HTTPS" if ssl_context else "HTTP"})')
+        
+        # Logging the server start information
+        print(f"{Colors.OKGREEN}[INFO] Starting server on {host}:{port} ({'HTTPS' if ssl_context else 'HTTP'}){Colors.ENDC}")
+        print(f"{Colors.OKBLUE}[INFO] Server available at {self.server_url}{Colors.ENDC}")
+        
+        if not self.browser_opened:
+            threading.Thread(target=lambda: webbrowser.open(self.server_url)).start()
+            self.browser_opened = True
+
         await site.start()
-        try:
-            while True:
-                await asyncio.sleep(3600)  # Keep the server running
-        finally:
-            await runner.cleanup()
-            await self.close()
+        print(f"{Colors.WARNING}[ACTION] Press Ctrl+C to stop or type 'r' to restart.{Colors.ENDC}")
+        
+        await self.wait_for_restart()
+        await runner.cleanup()
+        await self.close()
+
+    async def wait_for_restart(self):
+        loop = asyncio.get_event_loop()
+
+        def check_for_restart():
+            while not self.restart_event.is_set():
+                user_input = input()
+                if user_input.strip().lower() == 'r':
+                    print(f"{Colors.HEADER}[INFO] Restarting server...{Colors.ENDC}")
+                    self.restart_event.set()
+                    loop.stop()
+
+        threading.Thread(target=check_for_restart, daemon=True).start()
+        
+        await self.restart_event.wait()
+        os.execv(sys.executable, ['python'] + sys.argv)
