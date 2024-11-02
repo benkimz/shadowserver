@@ -53,6 +53,89 @@ await proxy.start_server(host="127.0.0.1", port=8080, ssl_cert_path="/path/to/ce
 
 ---
 
+## ShadowServer URL Redirection
+
+The `ShadowServer` class now supports an optional redirect feature, allowing users to automatically redirect requests from the base URL to a specified target URL. This feature can be enabled by passing a `redirect_url` and setting the `redirects` parameter to `True` when initializing the server.
+
+### Parameters
+
+- **redirect_url**: `str`  
+  The URL to redirect to when the base URL (i.e., `/`) is accessed. This parameter is optional but required if `redirects` is set to `True`.
+- **redirects**: `bool`  
+  If `True`, requests to the base URL will be redirected to the URL specified in `redirect_url`. If `False`, all requests are proxied to `target_base_url` without redirection.
+
+### Example Usage
+
+Here are some examples showing how to configure the `ShadowServer` with URL redirection.
+
+#### Example 1: Redirecting Requests from Base URL to Another URL
+
+In this example, requests to the base URL (`/`) will be redirected to the URL specified in `redirect_url`:
+
+```python
+from shadowserver import ShadowServer
+import asyncio
+
+BASE_URL = "https://example.com/api"
+REDIRECT_URL = "https://example.com/home"
+
+server = ShadowServer(
+    target_base_url=BASE_URL,
+    redirect_url=REDIRECT_URL,
+    redirects=True
+)
+
+asyncio.run(server.start_server(
+    host="127.0.0.1",
+    port=3000,
+    cert_path="./cert/localhost.crt",
+    key_path="./cert/localhost.key"
+))
+```
+
+In this setup:
+
+- Any request to `http://127.0.0.1:3000/` (the base URL) will automatically be redirected to `https://example.com/home`.
+- All other requests (e.g., `http://127.0.0.1:3000/some/path`) will be proxied to `https://example.com/api/some/path`.
+
+#### Example 2: Disabling Redirection
+
+If you want to use `ShadowServer` as a traditional proxy without redirection, simply omit `redirect_url` and set `redirects=False` (or leave it as the default):
+
+```python
+from shadowserver import ShadowServer
+import asyncio
+
+BASE_URL = "https://example.com/api"
+
+server = ShadowServer(
+    target_base_url=BASE_URL,
+    redirects=False  # No redirection, acts as a normal proxy
+)
+
+asyncio.run(server.start_server(
+    host="127.0.0.1",
+    port=3000,
+    cert_path="./cert/localhost.crt",
+    key_path="./cert/localhost.key"
+))
+```
+
+In this configuration:
+
+- Requests to `http://127.0.0.1:3000/` will be proxied to `https://example.com/api/`, with no redirection.
+
+### Redirect Behavior
+
+When `redirects=True` and a `redirect_url` is provided, any request to the base URL will return a `302 Found` response, redirecting the client to the `redirect_url`. This is useful for scenarios where you want to guide users from the proxy’s root path to a specific target.
+
+---
+
+### Notes
+
+- The `redirect_url` parameter must be a fully qualified URL (e.g., `https://example.com/home`).
+- Only requests to the exact base URL (`/`) will trigger the redirect.
+
 ## API Reference
 
 ### ShadowServer

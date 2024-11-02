@@ -20,11 +20,13 @@ class Colors:
     BOLD = '\033[1m'
 
 class ShadowServer:
-    def __init__(self, target_base_url, timeout=30, max_conn=100):
+    def __init__(self, target_base_url, timeout=30, max_conn=100, redirect_url=None, redirects=False):
         self.target_base_url = target_base_url
+        self.redirect_url = redirect_url
+        self.redirects = redirects
         self.timeout = timeout
         self.max_conn = max_conn
-        self.session = None  # Initialized later in an async context
+        self.session = None
         self.app = web.Application()
         self.app.router.add_route('*', '/{path_info:.*}', self.handle_request)
         self.restart_event = asyncio.Event()
@@ -39,6 +41,9 @@ class ShadowServer:
         )  
 
     async def handle_request(self, request):
+        if self.redirects and request.path == '/':
+            return web.HTTPFound(self.redirect_url)
+
         target_url = self.construct_target_url(request)
         headers = self.prepare_headers(request)
         
