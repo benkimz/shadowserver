@@ -1,14 +1,15 @@
 # ShadowServer
 
-`shadowserver` is an asynchronous HTTP/HTTPS proxy server library built using `aiohttp`, designed to forward requests from clients to a target server. It efficiently handles HTTP and WebSocket connections, provides CORS support, and allows custom SSL certificates. `shadowserver` is ideal for proxying requests to backend services or simulating server requests for testing and development purposes.
+`shadowserver` is an asynchronous HTTP proxy server library using `aiohttp`, designed to forward requests from clients to a target server. It handles HTTP and WebSocket connections, provides CORS support, and offers flexible SSL verification options, making it ideal for backend service proxying and server simulations in testing environments.
 
 ## Features
 
-- **HTTP and HTTPS Proxying**: Supports both HTTP and HTTPS requests.
-- **CORS Support**: Cross-Origin Resource Sharing (CORS) headers are automatically managed to allow cross-origin requests.
-- **WebSocket Support**: Forwards WebSocket connections between client and server.
-- **Custom SSL Certificates**: Accepts paths to custom SSL certificates for secure HTTPS connections.
-- **Asynchronous Design**: Uses `aiohttp` to handle concurrent requests asynchronously.
+- **HTTP Proxying**: Supports forwarding HTTP requests to a specified target.
+- **CORS Support**: Automatically adds headers to enable cross-origin requests.
+- **WebSocket Support**: Forwards WebSocket connections between client and target server.
+- **Flexible SSL Verification**: Allows disabling SSL verification for outgoing HTTPS requests.
+- **Route Support**: Ability to append a custom route to the proxy server URL.
+- **Asynchronous Design**: Built with `aiohttp` for handling multiple concurrent requests efficiently.
 
 ---
 
@@ -34,7 +35,13 @@ import asyncio
 
 async def main():
     # Initialize the server with the target URL and optional settings
-    proxy = ShadowServer(target_base_url="https://example.com", timeout=30, max_conn=100)
+    proxy = ShadowServer(
+        target_base_url="https://example.com",
+        timeout=30,
+        max_conn=100,
+        open_on_browser=True,
+        verify_ssl=True
+    )
 
     # Start the server
     await proxy.start_server(host="127.0.0.1", port=8080)
@@ -43,26 +50,31 @@ async def main():
 asyncio.run(main())
 ```
 
-### Using Custom SSL Certificates
+### Disabling SSL Verification
 
-To specify a custom SSL certificate and key, pass the paths as arguments when starting the server:
+To disable SSL verification for outgoing HTTPS requests, pass `verify_ssl=False` during initialization:
 
 ```python
-await proxy.start_server(host="127.0.0.1", port=8080, ssl_cert_path="/path/to/cert.pem", ssl_key_path="/path/to/key.pem")
+proxy = ShadowServer(
+    target_base_url="https://example.com",
+    verify_ssl=False  # Disables SSL verification for HTTPS requests
+)
 ```
+
+This can be useful for development environments where the target server uses a self-signed certificate.
 
 ---
 
 ## ShadowServer URL Redirection
 
-The `ShadowServer` class now supports an optional redirect feature, allowing users to automatically redirect requests from the base URL to a specified target URL. This feature can be enabled by passing a `redirect_url` and setting the `redirects` parameter to `True` when initializing the server.
+The `ShadowServer` class includes an optional redirect feature to automatically redirect requests from the base URL to a specified URL. This is enabled by passing a `redirect_url` and setting `redirects=True`.
 
 ### Parameters
 
 - **redirect_url**: `str`  
-  The URL to redirect to when the base URL (i.e., `/`) is accessed. This parameter is optional but required if `redirects` is set to `True`.
+  The URL to redirect to when the base URL (`/`) is accessed.
 - **redirects**: `bool`  
-  If `True`, requests to the base URL will be redirected to the URL specified in `redirect_url`. If `False`, all requests are proxied to `target_base_url` without redirection.
+  Enables or disables the redirect from the base URL to `redirect_url`.
 
 ### Example Usage
 
@@ -87,20 +99,16 @@ server = ShadowServer(
 
 asyncio.run(server.start_server(
     host="127.0.0.1",
-    port=3000,
-    cert_path="./cert/localhost.crt",
-    key_path="./cert/localhost.key"
+    port=3000
 ))
 ```
 
-In this setup:
-
-- Any request to `http://127.0.0.1:3000/` (the base URL) will automatically be redirected to `https://example.com/home`.
+- Requests to `http://127.0.0.1:3000/` will automatically redirect to `https://example.com/home`.
 - All other requests (e.g., `http://127.0.0.1:3000/some/path`) will be proxied to `https://example.com/api/some/path`.
 
 #### Example 2: Disabling Redirection
 
-If you want to use `ShadowServer` as a traditional proxy without redirection, simply omit `redirect_url` and set `redirects=False` (or leave it as the default):
+To use `ShadowServer` as a proxy without redirection, omit `redirect_url` and set `redirects=False`:
 
 ```python
 from shadowserver import ShadowServer
@@ -110,37 +118,49 @@ BASE_URL = "https://example.com/api"
 
 server = ShadowServer(
     target_base_url=BASE_URL,
-    redirects=False  # No redirection, acts as a normal proxy
+    redirects=False  # Disables redirection
 )
 
 asyncio.run(server.start_server(
     host="127.0.0.1",
-    port=3000,
-    cert_path="./cert/localhost.crt",
-    key_path="./cert/localhost.key"
+    port=3000
 ))
 ```
 
-In this configuration:
-
-- Requests to `http://127.0.0.1:3000/` will be proxied to `https://example.com/api/`, with no redirection.
-
-### Redirect Behavior
-
-When `redirects=True` and a `redirect_url` is provided, any request to the base URL will return a `302 Found` response, redirecting the client to the `redirect_url`. This is useful for scenarios where you want to guide users from the proxy’s root path to a specific target.
-
 ---
 
-### Notes
+## Advanced Configuration
 
-- The `redirect_url` parameter must be a fully qualified URL (e.g., `https://example.com/home`).
-- Only requests to the exact base URL (`/`) will trigger the redirect.
+### Setting a Custom Route
+
+You can specify a custom route that will be appended to the base URL. This is useful when you want the server to be accessible via a specific route.
+
+```python
+proxy = ShadowServer(
+    target_base_url="https://example.com",
+    route="/customroute"
+)
+
+asyncio.run(proxy.start_server(host="127.0.0.1", port=8080))
+```
+
+### Setting Timeout and Maximum Connections
+
+To configure custom timeouts and connection limits during initialization:
+
+```python
+proxy = ShadowServer(target_base_url="https://example.com", timeout=60, max_conn=200)
+```
+
+This example sets a 60-second timeout and allows up to 200 concurrent connections.
+
+---
 
 ## API Reference
 
 ### ShadowServer
 
-The main class that sets up and runs the proxy server.
+The main class for setting up and running the proxy server.
 
 ```python
 class ShadowServer:
@@ -151,13 +171,18 @@ class ShadowServer:
   - `target_base_url` (str): The base URL to which all proxied requests are forwarded.
   - `timeout` (int, optional): Timeout in seconds for requests to the target server. Default is `30`.
   - `max_conn` (int, optional): Maximum number of concurrent connections. Default is `100`.
+  - `redirect_url` (str, optional): URL for redirecting requests from the base URL.
+  - `redirects` (bool, optional): If `True`, enables redirection to `redirect_url`. Default is `False`.
+  - `open_on_browser` (bool, optional): Automatically opens the server URL in a browser when started. Default is `True`.
+  - `verify_ssl` (bool, optional): If `False`, disables SSL verification. Default is `True`.
+  - `route` (str, optional): Appends a custom route to the server URL.
 
 #### Methods
 
 1. **`start_server`**
 
    ```python
-   async def start_server(self, host='127.0.0.1', port=8080, ssl_cert_path=None, ssl_key_path=None)
+   async def start_server(self, host='127.0.0.1', port=8080)
    ```
 
    Starts the proxy server.
@@ -166,14 +191,6 @@ class ShadowServer:
 
      - `host` (str, optional): The host IP on which the server runs. Default is `'127.0.0.1'`.
      - `port` (int, optional): The port on which the server listens. Default is `8080`.
-     - `ssl_cert_path` (str, optional): Path to the SSL certificate file.
-     - `ssl_key_path` (str, optional): Path to the SSL key file.
-
-   - **Example**:
-
-     ```python
-     await proxy.start_server(host='127.0.0.1', port=8080, ssl_cert_path='cert.pem', ssl_key_path='key.pem')
-     ```
 
 2. **`close`**
 
@@ -223,50 +240,12 @@ asyncio.run(connect())
 
 ---
 
-## Advanced Configuration
-
-### Setting Custom Headers
-
-By default, `shadowserver` removes specific headers such as `Host` and CORS headers from the client request before forwarding them. You can add additional headers by modifying the `prepare_headers` function.
-
-### Setting Timeout and Maximum Connections
-
-You can set custom timeout and connection limits during initialization:
-
-```python
-proxy = ShadowServer(target_base_url="https://example.com", timeout=60, max_conn=200)
-```
-
-This will set a 60-second timeout and allow up to 200 concurrent connections.
-
----
-
-## Contributing
-
-1. Fork the repository.
-2. Create a new branch for your feature (`git checkout -b feature/AmazingFeature`).
-3. Commit your changes (`git commit -m 'Add AmazingFeature'`).
-4. Push to the branch (`git push origin feature/AmazingFeature`).
-5. Open a pull request.
-
----
-
-## License
-
-This project is licensed under the MIT License.
-
----
-
 ## Troubleshooting
 
 ### CORS Errors
 
 If you encounter CORS issues, ensure that the client request headers include the correct `Origin`.
 
-### SSL Errors
+### SSL Verification Errors
 
-For HTTPS proxying, make sure the SSL certificate paths are correct, or the proxy will only handle HTTP requests.
-
----
-
-This documentation should help you get started with `shadowserver` and provide a quick reference for common usage patterns and configurations.
+To disable SSL verification, set `verify_ssl=False` when initializing the server.

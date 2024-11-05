@@ -20,12 +20,15 @@ class Colors:
     BOLD = '\033[1m'
 
 class ShadowServer:
-    def __init__(self, target_base_url, timeout=30, max_conn=100, redirect_url=None, redirects=False):
+    def __init__(self, target_base_url, timeout=30, max_conn=100, redirect_url=None, redirects=False, open_on_browser=True, verify_ssl=True, route=""):
         self.target_base_url = target_base_url
         self.redirect_url = redirect_url
         self.redirects = redirects
         self.timeout = timeout
         self.max_conn = max_conn
+        self.open_on_browser = open_on_browser
+        self.verify_ssl = verify_ssl
+        self.route = route
         self.session = None
         self.app = web.Application()
         self.app.router.add_route('*', '/{path_info:.*}', self.handle_request)
@@ -35,10 +38,18 @@ class ShadowServer:
 
     async def init_session(self):
         """Initialize the session and connector with the running event loop."""
+        # Create SSL context based on verify_ssl flag
+        ssl_context = None
+        if self.target_base_url.startswith("https://") and not self.verify_ssl:
+            ssl_context = ssl.create_default_context()
+            ssl_context.check_hostname = False
+            ssl_context.verify_mode = ssl.CERT_NONE
+            print(f"{Colors.WARNING}[INFO] SSL verification is disabled for outgoing HTTPS requests.{Colors.ENDC}")
+
         self.session = ClientSession(
             timeout=ClientTimeout(total=self.timeout),
-            connector=aiohttp.TCPConnector(limit=self.max_conn, ssl=False)
-        )  
+            connector=aiohttp.TCPConnector(limit=self.max_conn, ssl=ssl_context)
+        ) 
 
     async def handle_request(self, request):
         if self.redirects and request.path == '/':
@@ -123,12 +134,12 @@ class ShadowServer:
             body=body
         )
 
-    def construct_target_url(self, request):
-        path_info = request.match_info['path_info']
-        target_url = f"{self.target_base_url}/{path_info}"
+    def construct_target_url(self, request, route=""):
+        path_info = route or request.match_info['path_info']
+        target_url = f"{self.target_base_url}/{path_info}".rstrip("/")
         if request.query_string:
             target_url += f"?{request.query_string}"
-        return target_url
+        return target_url    
 
     def prepare_headers(self, request):
         headers = {key: value for key, value in request.headers.items() if key.lower() != 'host'}
@@ -138,38 +149,35 @@ class ShadowServer:
             'X-Forwarded-For': request.headers.get('X-Forwarded-For', request.remote),
             'X-Forwarded-Proto': request.scheme,
         })
-        return headers
+        return headers  
 
-    async def close(self):
-        await self.session.close()
-
-    async def start_server(self, host='127.0.0.1', port=8080, cert_path=None, key_path=None):
+    async def start_server(self, host='127.0.0.1', port=8080):
         await self.init_session()
         runner = web.AppRunner(self.app)
         await runner.setup()
 
-        ssl_context = None
-        if cert_path and key_path:
-            ssl_context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
-            ssl_context.load_cert_chain(certfile=cert_path, keyfile=key_path)
+        # Append route if specified
+        self.server_url = f"http://{host}:{port}{self.route}"
+        site = web.TCPSite(runner, host, port)
 
-        self.server_url = f"http{'s' if ssl_context else ''}://{host}:{port}"
-        site = web.TCPSite(runner, host, port, ssl_context=ssl_context)
-        
         # Logging the server start information
-        print(f"{Colors.OKGREEN}[INFO] Starting server on {host}:{port} ({'HTTPS' if ssl_context else 'HTTP'}){Colors.ENDC}")
+        print(f"{Colors.OKGREEN}[INFO] Starting server on {host}:{port} (HTTP){Colors.ENDC}")
         print(f"{Colors.OKBLUE}[INFO] Server available at {self.server_url}{Colors.ENDC}")
-        
-        if not self.browser_opened:
+
+        # Open browser only if open_on_browser is True
+        if not self.browser_opened and self.open_on_browser:
             threading.Thread(target=lambda: webbrowser.open(self.server_url)).start()
             self.browser_opened = True
 
         await site.start()
         print(f"{Colors.WARNING}[ACTION] Press Ctrl+C to stop or type 'r' to restart.{Colors.ENDC}")
-        
+
         await self.wait_for_restart()
         await runner.cleanup()
         await self.close()
+
+    async def close(self):
+        await self.session.close()
 
     async def wait_for_restart(self):
         loop = asyncio.get_event_loop()
