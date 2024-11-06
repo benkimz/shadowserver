@@ -173,8 +173,11 @@ class ShadowServer:
         await site.start()
         print(f"{Colors.WARNING}[ACTION] Press Ctrl+C to stop or type 'r' to restart.{Colors.ENDC}")
 
-        if self.debug_mode == True:
+        if self.debug_mode:
             await self.wait_for_restart()
+        else:
+            while True:
+                await asyncio.sleep(3600)
         await runner.cleanup()
         await self.close()
 
