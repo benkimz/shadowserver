@@ -152,13 +152,16 @@ class ShadowServer:
         })
         return headers  
 
-    async def start_server(self, host='127.0.0.1', port=8080):
+    async def start_server(self, host='0.0.0.0', port=8080):
         await self.init_session()
         runner = web.AppRunner(self.app)
         await runner.setup()
 
         # Append route if specified
-        self.server_url = f"http://{host}:{port}{self.route}"
+        if host == "0.0.0.0":
+            self.server_url = f"http://localhost:{port}{self.route}"
+        else:
+            self.server_url = f"http://{host}:{port}{self.route}"
         site = web.TCPSite(runner, host, port)
 
         # Logging the server start information

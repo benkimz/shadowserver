@@ -6,7 +6,7 @@ with open('README.md', 'r', encoding="utf-8") as f:
 
 setup(
     name='shadowserver',
-    version='0.2.1',
+    version='0.2.2',
     description='An asynchronous HTTP proxy server library using aiohttp, designed to forward requests from clients to a target server',
     long_description=library_description,
     long_description_content_type='text/markdown',
