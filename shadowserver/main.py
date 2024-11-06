@@ -20,7 +20,7 @@ class Colors:
     BOLD = '\033[1m'
 
 class ShadowServer:
-    def __init__(self, target_base_url, timeout=30, max_conn=100, redirect_url=None, redirects=False, open_on_browser=True, verify_ssl=True, route=""):
+    def __init__(self, target_base_url, timeout=30, max_conn=100, redirect_url=None, redirects=False, open_on_browser=True, verify_ssl=True, route="", debug_mode=False):
         self.target_base_url = target_base_url
         self.redirect_url = redirect_url
         self.redirects = redirects
@@ -35,6 +35,7 @@ class ShadowServer:
         self.restart_event = asyncio.Event()
         self.server_url = ""
         self.browser_opened = False
+        self.debug_mode = debug_mode
 
     async def init_session(self):
         """Initialize the session and connector with the running event loop."""
@@ -172,7 +173,8 @@ class ShadowServer:
         await site.start()
         print(f"{Colors.WARNING}[ACTION] Press Ctrl+C to stop or type 'r' to restart.{Colors.ENDC}")
 
-        await self.wait_for_restart()
+        if self.debug_mode == True:
+            await self.wait_for_restart()
         await runner.cleanup()
         await self.close()
 
