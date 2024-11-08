@@ -184,8 +184,12 @@ class ShadowServer:
         await site.start()
         print(f"{Colors.WARNING}[ACTION] Press Ctrl+C to stop the server gracefully.{Colors.ENDC}")
 
-        await self.shutdown_event.wait()  # Wait until shutdown event is set
-        print(f"{Colors.HEADER}[INFO] Shutting down server...{Colors.ENDC}")
+        if self.debug_mode:
+            await self.shutdown_event.wait()  # Wait until shutdown event is set
+            print(f"{Colors.HEADER}[INFO] Shutting down server...{Colors.ENDC}")
+        else:
+            while not self.shutdown_event.is_set():
+                await asyncio.sleep(1)        
   
         await runner.cleanup()
         await self.close()
