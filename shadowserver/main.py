@@ -6,8 +6,7 @@ from urllib.parse import urlsplit
 import ssl
 import threading
 import webbrowser
-import sys
-import os
+import signal
 
 # ANSI escape codes for colored terminal output
 class Colors:
@@ -32,10 +31,19 @@ class ShadowServer:
         self.session = None
         self.app = web.Application()
         self.app.router.add_route('*', '/{path_info:.*}', self.handle_request)
-        self.restart_event = asyncio.Event()
+        self.shutdown_event = asyncio.Event()
         self.server_url = ""
         self.browser_opened = False
         self.debug_mode = debug_mode
+
+        # Register signal handler for graceful shutdown
+        signal.signal(signal.SIGINT, self.handle_shutdown) 
+
+    def handle_shutdown(self, signum, frame):
+        """Signal handler to set the shutdown event."""
+        print(f"\n{Colors.FAIL}[INFO] Received shutdown signal... Stopping server gracefully.{Colors.ENDC}")
+        self.shutdown_event.set()  # Set the event to initiate shutdown
+        signal.signal(signal.SIGINT, signal.SIG_IGN)  # Ignore further signals        
 
     async def init_session(self):
         """Initialize the session and connector with the running event loop."""
@@ -174,31 +182,13 @@ class ShadowServer:
             self.browser_opened = True
 
         await site.start()
-        print(f"{Colors.WARNING}[ACTION] Press Ctrl+C to stop or type 'r' to restart.{Colors.ENDC}")
+        print(f"{Colors.WARNING}[ACTION] Press Ctrl+C to stop the server gracefully.{Colors.ENDC}")
 
-        if self.debug_mode:
-            await self.wait_for_restart()
-        else:
-            while True:
-                await asyncio.sleep(3600)
+        await self.shutdown_event.wait()  # Wait until shutdown event is set
+        print(f"{Colors.HEADER}[INFO] Shutting down server...{Colors.ENDC}")
+  
         await runner.cleanup()
         await self.close()
 
     async def close(self):
         await self.session.close()
-
-    async def wait_for_restart(self):
-        loop = asyncio.get_event_loop()
-
-        def check_for_restart():
-            while not self.restart_event.is_set():
-                user_input = input()
-                if user_input.strip().lower() == 'r':
-                    print(f"{Colors.HEADER}[INFO] Restarting server...{Colors.ENDC}")
-                    self.restart_event.set()
-                    loop.stop()
-
-        threading.Thread(target=check_for_restart, daemon=True).start()
-        
-        await self.restart_event.wait()
-        os.execv(sys.executable, ['python'] + sys.argv)
